@@ -2,8 +2,6 @@
 // Ponte verso l'API di Anthropic per le stime e la chat di Michi.
 // La chiave ANTHROPIC_API_KEY sta lato server (mai nel browser).
 
-export const config = { runtime: "nodejs" };
-
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -15,17 +13,29 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { messages, system, max_tokens } = req.body || {};
-    if (!messages || !Array.isArray(messages)) {
-      return res.status(400).json({ error: "messages mancante" });
+    // Leggi il body in modo robusto (Vercel a volte non lo parsa da solo)
+    let body = req.body;
+    if (typeof body === "string") {
+      try { body = JSON.parse(body); } catch (e) { body = {}; }
+    }
+    if (!body || typeof body !== "object" || !body.messages) {
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const raw = Buffer.concat(chunks).toString("utf8");
+      if (raw) { try { body = JSON.parse(raw); } catch (e) {} }
     }
 
-    const body = {
+    const { messages, system, max_tokens } = body || {};
+    if (!messages || !Array.isArray(messages)) {
+      return res.status(400).json({ error: "messages mancante o non valido" });
+    }
+
+    const payload = {
       model: "claude-sonnet-4-6",
       max_tokens: max_tokens || 2000,
       messages,
     };
-    if (system) body.system = system;
+    if (system) payload.system = system;
 
     const aRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -34,19 +44,19 @@ export default async function handler(req, res) {
         "x-api-key": apiKey,
         "anthropic-version": "2023-06-01",
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(payload),
     });
 
+    const text = await aRes.text();
     if (!aRes.ok) {
-      const errText = await aRes.text();
-      return res.status(502).json({ error: "Errore Anthropic", detail: errText.slice(0, 600) });
+      return res.status(aRes.status).json({ error: "Errore Anthropic", detail: text.slice(0, 800) });
     }
 
-    const data = await aRes.json();
+    res.setHeader("Content-Type", "application/json");
     res.setHeader("Cache-Control", "no-store");
-    return res.status(200).json(data);
+    return res.status(200).send(text);
 
   } catch (e) {
-    return res.status(500).json({ error: "Errore server", detail: String(e).slice(0, 400) });
+    return res.status(500).json({ error: "Errore server", detail: String(e && e.stack ? e.stack : e).slice(0, 800) });
   }
 }
