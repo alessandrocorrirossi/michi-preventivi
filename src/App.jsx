@@ -3064,15 +3064,21 @@ const MichiMascot = ({tip, onClose, actions=[], autoSpeak=true}) => {
           <rect x="26" y="50" width="28" height="38" rx="6" fill="#7B9CB5"/>
           <path d="M31 54 L49 54 L51 86 L29 86 Z" fill="#A0791A"/>
           <rect x="35" y="64" width="10" height="8" rx="2" fill="#7A5F10"/>
-          {/* Braccio sinistro (fisso) */}
-          <path d="M27 55 Q18 64 16 74" stroke="#7B9CB5" strokeWidth="8" strokeLinecap="round"/>
-          <ellipse cx="15" cy="76" rx="4.5" ry="4" fill="#D4956A"/>
-          {/* Braccio destro (saluta) — ancorato alla spalla */}
-          <g style={{transform: waving ? "rotate(-32deg)" : "rotate(0deg)",
-            transformOrigin:"53px 56px", transformBox:"fill-box", transition:"transform .3s"}}>
-            <path d="M53 56 Q63 51 66 41" stroke="#7B9CB5" strokeWidth="8" strokeLinecap="round"/>
-            <ellipse cx="66" cy="39" rx="5" ry="4.5" fill="#D4956A"/>
-          </g>
+          {/* Braccio sinistro (fisso, lungo il corpo) */}
+          <path d="M28 54 Q22 66 21 78" stroke="#7B9CB5" strokeWidth="8" strokeLinecap="round"/>
+          <ellipse cx="21" cy="80" rx="4.5" ry="4" fill="#D4956A"/>
+          {/* Braccio destro: fermo lungo il corpo, oppure alzato per salutare */}
+          {waving ? (
+            <g style={{transformOrigin:"52px 54px", transition:"transform .3s"}}>
+              <path d="M52 54 Q62 48 65 38" stroke="#7B9CB5" strokeWidth="8" strokeLinecap="round"/>
+              <ellipse cx="65" cy="36" rx="5" ry="4.5" fill="#D4956A"/>
+            </g>
+          ) : (
+            <g>
+              <path d="M52 54 Q58 66 59 78" stroke="#7B9CB5" strokeWidth="8" strokeLinecap="round"/>
+              <ellipse cx="59" cy="80" rx="4.5" ry="4" fill="#D4956A"/>
+            </g>
+          )}
           <rect x="35" y="38" width="10" height="14" rx="4" fill="#D4956A"/>
           <ellipse cx="40" cy="26" rx="18" ry="19" fill="#D4956A"/>
           <path d="M22 22 Q20 14 24 9 Q26 6 29 8 Q24 13 24 22 Z" fill="#B0B8C0"/>
