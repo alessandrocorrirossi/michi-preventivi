@@ -286,9 +286,12 @@ const speak = (text, onStart, onEnd) => {
     const voices = window.speechSynthesis.getVoices();
     // Priorità: voce italiana maschile → italiana generica → spagnola → default
     const itVoices = voices.filter(v => v.lang && v.lang.toLowerCase().startsWith("it"));
-    const premium = itVoices.find(v => /cosimo|luca|alice|federica|elsa/i.test(v.name) && !/compact/i.test(v.name));
-    const anyGood = itVoices.find(v => !/compact|espeak/i.test(v.name));
-    const best   = premium || anyGood || itVoices[0] || null;
+    // Preferisci voci MASCHILI italiane di qualità
+    const maleNames = /cosimo|luca|diego|giuseppe|paolo|carlo|male|uomo/i;
+    const maleVoice = itVoices.find(v => maleNames.test(v.name) && !/compact|espeak/i.test(v.name))
+                   || itVoices.find(v => maleNames.test(v.name));
+    const premium = itVoices.find(v => !/compact|espeak/i.test(v.name));
+    const best   = maleVoice || premium || itVoices[0] || null;
     if (best) utt.voice = best;
     if (onStart) utt.onstart = onStart;
     if (onEnd) { utt.onend = onEnd; utt.onerror = onEnd; }
@@ -427,9 +430,11 @@ const SpeakBtn = ({text}) => {
       const voices = window.speechSynthesis.getVoices();
       const itVoices = voices.filter(v => v.lang && v.lang.toLowerCase().startsWith("it"));
       // Preferisci voci italiane di qualità (non eSpeak/Compact)
-      const premium = itVoices.find(v => /cosimo|luca|alice|federica|elsa/i.test(v.name) && !/compact/i.test(v.name));
-      const anyGood = itVoices.find(v => !/compact|espeak/i.test(v.name));
-      const best = premium || anyGood || itVoices[0] || voices[0] || null;
+      const maleNames = /cosimo|luca|diego|giuseppe|paolo|carlo|male|uomo/i;
+      const maleVoice = itVoices.find(v => maleNames.test(v.name) && !/compact|espeak/i.test(v.name))
+                     || itVoices.find(v => maleNames.test(v.name));
+      const premium = itVoices.find(v => !/compact|espeak/i.test(v.name));
+      const best = maleVoice || premium || itVoices[0] || voices[0] || null;
       if (best) utt.voice = best;
       utt.onstart  = () => setSpeaking(true);
       utt.onend    = () => setSpeaking(false);
@@ -2298,6 +2303,8 @@ const NewItemForm = ({settings, onAdd, projectHistory=[]}) => {
   const [preview, setPreview]         = useState(null);
   const [imgFile, setImgFile]         = useState(null);
   const [imgB64,  setImgB64]          = useState(null);
+  const [fileType, setFileType]       = useState(null); // "image" | "pdf"
+  const [fileMime, setFileMime]       = useState("image/jpeg");
   const [analysisUnit, setAnalysisUnit] = useState("pz");
   const [unitW, setUnitW]             = useState(0);
   const [unitH, setUnitH]             = useState(0);
@@ -2309,6 +2316,9 @@ const NewItemForm = ({settings, onAdd, projectHistory=[]}) => {
     const file = e.target.files[0];
     if (!file) return;
     setImgFile(file.name);
+    const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+    setFileType(isPdf ? "pdf" : "image");
+    setFileMime(isPdf ? "application/pdf" : (file.type || "image/jpeg"));
     const reader = new FileReader();
     reader.onload = ev => { setImgB64(ev.target.result.split(",")[1]); };
     reader.readAsDataURL(file);
@@ -2344,9 +2354,22 @@ Rispondi SOLO con JSON valido, nessun testo fuori:
 {"description":"descrizione tecnica 2-3 frasi","phases":[{"name":"nome fase","subphases":[{"name":"sottofase","figureId":"f1-f5","machineId":"m1-m6 o null","hours":0.0}]}],"materials":[{"name":"nome","unit":"mq/ml/pz/mc/ps","qty":0.0,"price":0.0}],"externalizations":[{"name":"attività","unit":"pz","qty":1,"price":0.0}],"notes":"assunzioni e note"}`;
 
     try {
-      const messages = imgB64
-        ? [{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:imgB64}},{type:"text",text:prompt}]}]
-        : [{role:"user",content:prompt}];
+      let messages;
+      if (imgB64 && fileType === "pdf") {
+        // PDF inviato come documento
+        messages = [{role:"user",content:[
+          {type:"document",source:{type:"base64",media_type:"application/pdf",data:imgB64}},
+          {type:"text",text:prompt + "\n\nAnalizza il disegno/documento PDF allegato per ricavare misure, materiali e lavorazioni."}
+        ]}];
+      } else if (imgB64 && fileType === "image") {
+        // Immagine (foto o render)
+        messages = [{role:"user",content:[
+          {type:"image",source:{type:"base64",media_type:fileMime,data:imgB64}},
+          {type:"text",text:prompt + "\n\nAnalizza l'immagine allegata (foto o render) per ricavare materiali e lavorazioni."}
+        ]}];
+      } else {
+        messages = [{role:"user",content:prompt}];
+      }
       const res = await fetch("https://api.anthropic.com/v1/messages",{
         method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({model:"claude-sonnet-4-5-20250929",max_tokens:2500,messages})
@@ -2406,8 +2429,8 @@ Rispondi SOLO con JSON valido, nessun testo fuori:
         <div><Lbl c="Qtà" style={{marginBottom:3}}/><Inp type="number" value={qty} min={1} onChange={v=>setQty(Math.max(1,v))}/></div>
       </div>
       <div style={{marginBottom:8}}>
-        <Lbl c="Caratteristiche" style={{marginBottom:3}}/>
-        <Inp value={desc} onChange={setDesc} rows={2} placeholder="es. Ante scorrevoli, finitura laccato opaco, interno con ripiani e cassettiera…"/>
+        <Lbl c="Descrizione" style={{marginBottom:3}}/>
+        <Inp value={desc} onChange={setDesc} rows={2} placeholder="es. Mobile TV sospeso per suite, struttura in nobilitato…"/>
       </div>
       <div style={{marginBottom:8}}>
         <Lbl c="Caratteristiche" style={{marginBottom:3}}/>
@@ -2576,13 +2599,24 @@ Rispondi SOLO con JSON valido, nessun testo fuori:
       </div>
 
       <div style={{marginBottom:10}}>
-        <Lbl c="Foto / Render (opzionale)" style={{marginBottom:3}}/>
+        <Lbl c="Allega disegno, foto o PDF (opzionale)" style={{marginBottom:3}}/>
         <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",
-          background:T.surf2,border:`1px dashed ${T.border2}`,borderRadius:5,padding:"7px 10px"}}>
-          <span style={{fontSize:15}}>📎</span>
-          <span style={{fontSize:12,color:imgFile?T.text:T.text3}}>{imgFile||"Carica foto o render…"}</span>
-          <input type="file" accept="image/*" style={{display:"none"}} onChange={handleImg}/>
+          background:T.surf2,border:`1px dashed ${imgFile?T.blue:T.border2}`,borderRadius:5,padding:"9px 10px"}}>
+          <span style={{fontSize:16}}>{fileType==="pdf"?"📄":fileType==="image"?"🖼️":"📎"}</span>
+          <span style={{fontSize:12,color:imgFile?T.text:T.text3,flex:1}}>
+            {imgFile||"Carica disegno tecnico (PDF), foto o render…"}
+          </span>
+          {imgFile && (
+            <span onClick={(e)=>{e.preventDefault();setImgFile(null);setImgB64(null);setFileType(null);}}
+              style={{fontSize:14,color:T.text3,cursor:"pointer",padding:"0 4px"}}>✕</span>
+          )}
+          <input type="file" accept="image/*,application/pdf,.pdf" style={{display:"none"}} onChange={handleImg}/>
         </label>
+        {imgFile && (
+          <div style={{fontSize:10,color:T.blue2,marginTop:4,fontFamily:"'IBM Plex Mono',monospace"}}>
+            {fileType==="pdf"?"Michi leggerà il disegno tecnico per ricavare misure e materiali":"Michi analizzerà l'immagine per la stima"}
+          </div>
+        )}
       </div>
       <button onClick={generateEstimate} disabled={loading||(!name.trim()&&!desc.trim())}
         style={{width:"100%",padding:"10px",borderRadius:6,cursor:"pointer",marginBottom:8,
@@ -2932,14 +2966,30 @@ const MichiMascot = ({tip, onClose, actions=[], autoSpeak=true}) => {
 
   useEffect(()=>{
     const t1 = setTimeout(()=>{ setPhase("big"); setWaving(true); }, 300);
-    const t2 = setTimeout(()=>{
-      setShowBubble(true);
-      // Voce automatica insieme al testo (parte se il browser lo consente dopo interazione)
-      if (autoSpeak && tip) { try { speakOrus(tip); } catch(e){} }
-    }, 900);
+    const t2 = setTimeout(()=>setShowBubble(true), 900);
     const t3 = setTimeout(()=>setWaving(false), 3000);
     return ()=>{ [t1,t2,t3].forEach(clearTimeout); };
   },[]);
+
+  // L'audio dei browser è bloccato finché l'utente non interagisce.
+  // Quindi facciamo parlare Michi al PRIMO tocco/click sulla pagina.
+  useEffect(()=>{
+    if (!autoSpeak || !tip) return;
+    let spoken = false;
+    const speakOnce = () => {
+      if (spoken) return;
+      spoken = true;
+      try { speakOrus(tip); } catch(e){}
+      window.removeEventListener("click", speakOnce);
+      window.removeEventListener("touchstart", speakOnce);
+    };
+    window.addEventListener("click", speakOnce);
+    window.addEventListener("touchstart", speakOnce);
+    return ()=>{
+      window.removeEventListener("click", speakOnce);
+      window.removeEventListener("touchstart", speakOnce);
+    };
+  },[tip, autoSpeak]);
 
   const isBig    = phase === "big";
   const isCorner = phase === "corner";
