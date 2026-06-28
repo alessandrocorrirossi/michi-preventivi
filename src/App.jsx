@@ -287,9 +287,11 @@ const speak = (text, onStart, onEnd) => {
     // Priorità: voce italiana maschile → italiana generica → spagnola → default
     const itVoices = voices.filter(v => v.lang && v.lang.toLowerCase().startsWith("it"));
     // Preferisci voci MASCHILI italiane di qualità
-    const maleNames = /cosimo|luca|diego|giuseppe|paolo|carlo|male|uomo/i;
-    const maleVoice = itVoices.find(v => maleNames.test(v.name) && !/compact|espeak/i.test(v.name))
-                   || itVoices.find(v => maleNames.test(v.name));
+    const maleNames = /cosimo|luca|diego|giuseppe|paolo|carlo|marco|roberto|male|maschile|uomo|man\b/i;
+    const femaleNames = /alice|federica|elsa|paola|chiara|emma|giulia|female|femmin|donna|woman/i;
+    const maleVoice = itVoices.find(v => maleNames.test(v.name))
+                   || itVoices.find(v => !femaleNames.test(v.name) && !/compact|espeak/i.test(v.name))
+                   || itVoices.find(v => !femaleNames.test(v.name));
     const premium = itVoices.find(v => !/compact|espeak/i.test(v.name));
     const best   = maleVoice || premium || itVoices[0] || null;
     if (best) utt.voice = best;
@@ -430,9 +432,11 @@ const SpeakBtn = ({text}) => {
       const voices = window.speechSynthesis.getVoices();
       const itVoices = voices.filter(v => v.lang && v.lang.toLowerCase().startsWith("it"));
       // Preferisci voci italiane di qualità (non eSpeak/Compact)
-      const maleNames = /cosimo|luca|diego|giuseppe|paolo|carlo|male|uomo/i;
-      const maleVoice = itVoices.find(v => maleNames.test(v.name) && !/compact|espeak/i.test(v.name))
-                     || itVoices.find(v => maleNames.test(v.name));
+      const maleNames = /cosimo|luca|diego|giuseppe|paolo|carlo|marco|roberto|male|maschile|uomo|man\b/i;
+      const femaleNames = /alice|federica|elsa|paola|chiara|emma|giulia|female|femmin|donna|woman/i;
+      const maleVoice = itVoices.find(v => maleNames.test(v.name))
+                     || itVoices.find(v => !femaleNames.test(v.name) && !/compact|espeak/i.test(v.name))
+                     || itVoices.find(v => !femaleNames.test(v.name));
       const premium = itVoices.find(v => !/compact|espeak/i.test(v.name));
       const best = maleVoice || premium || itVoices[0] || voices[0] || null;
       if (best) utt.voice = best;
@@ -2979,7 +2983,7 @@ const MichiMascot = ({tip, onClose, actions=[], autoSpeak=true}) => {
     const speakOnce = () => {
       if (spoken) return;
       spoken = true;
-      try { speakOrus(tip); } catch(e){}
+      try { speak(tip); } catch(e){}
       window.removeEventListener("click", speakOnce);
       window.removeEventListener("touchstart", speakOnce);
     };
@@ -3060,13 +3064,15 @@ const MichiMascot = ({tip, onClose, actions=[], autoSpeak=true}) => {
           <rect x="26" y="50" width="28" height="38" rx="6" fill="#7B9CB5"/>
           <path d="M31 54 L49 54 L51 86 L29 86 Z" fill="#A0791A"/>
           <rect x="35" y="64" width="10" height="8" rx="2" fill="#7A5F10"/>
-          <g transform={waving ? "rotate(-30 54 56)" : "rotate(0 54 56)"}
-            style={{transition:"transform .3s", transformOrigin:"54px 56px"}}>
-            <path d="M54 56 Q64 50 66 40" stroke="#7B9CB5" strokeWidth="8" strokeLinecap="round"/>
-            <ellipse cx="67" cy="38" rx="5" ry="4.5" fill="#D4956A"/>
-          </g>
-          <path d="M26 56 Q18 64 16 74" stroke="#7B9CB5" strokeWidth="8" strokeLinecap="round"/>
+          {/* Braccio sinistro (fisso) */}
+          <path d="M27 55 Q18 64 16 74" stroke="#7B9CB5" strokeWidth="8" strokeLinecap="round"/>
           <ellipse cx="15" cy="76" rx="4.5" ry="4" fill="#D4956A"/>
+          {/* Braccio destro (saluta) — ancorato alla spalla */}
+          <g style={{transform: waving ? "rotate(-32deg)" : "rotate(0deg)",
+            transformOrigin:"53px 56px", transformBox:"fill-box", transition:"transform .3s"}}>
+            <path d="M53 56 Q63 51 66 41" stroke="#7B9CB5" strokeWidth="8" strokeLinecap="round"/>
+            <ellipse cx="66" cy="39" rx="5" ry="4.5" fill="#D4956A"/>
+          </g>
           <rect x="35" y="38" width="10" height="14" rx="4" fill="#D4956A"/>
           <ellipse cx="40" cy="26" rx="18" ry="19" fill="#D4956A"/>
           <path d="M22 22 Q20 14 24 9 Q26 6 29 8 Q24 13 24 22 Z" fill="#B0B8C0"/>
