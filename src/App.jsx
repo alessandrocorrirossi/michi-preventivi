@@ -346,6 +346,37 @@ const stopOrus = () => {
   stopSpeaking();
 };
 
+// Chiamata unificata all'AI di Michi.
+// Sul sito deployato usa il backend /api/michi (chiave protetta lato server).
+// Dentro l'artifact di Claude usa la chiamata diretta (autorizzata lì).
+const callMichi = async ({messages, system, max_tokens}) => {
+  // Prova prima il backend (funziona sul sito online)
+  try {
+    const res = await fetch("/api/michi", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, system, max_tokens }),
+    });
+    if (res.ok) {
+      const ct = res.headers.get("content-type") || "";
+      if (ct.includes("application/json")) {
+        const d = await res.json();
+        if (d && d.content) return d; // risposta valida dal backend
+      }
+    }
+  } catch (e) { /* backend non disponibile, passo al fallback */ }
+
+  // Fallback: chiamata diretta (funziona dentro l'artifact)
+  const body = { model: "claude-sonnet-4-6", max_tokens: max_tokens || 2000, messages };
+  if (system) body.system = system;
+  const res2 = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return await res2.json();
+};
+
 const stopSpeaking = () => { if (window.speechSynthesis) window.speechSynthesis.cancel(); };
 
 // Hook for speech-to-text
@@ -1216,12 +1247,7 @@ const AIBox = ({itemName,description,onAccept}) => {
     };
     setLoading(true); setText("⟳ Elaborazione…"); setShow(true);
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages",{
-        method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({model:"claude-sonnet-4-5-20250929",max_tokens:800,
-          messages:[{role:"user",content:prompts[mode]}]})
-      });
-      const d = await res.json();
+      const d = await callMichi({max_tokens:800, messages:[{role:"user",content:prompts[mode]}]});
       setText(d.content?.find(b=>b.type==="text")?.text?.trim()||"Errore risposta.");
     } catch(e) { setText("✕ Errore: "+e.message); }
     finally { setLoading(false); }
@@ -1925,16 +1951,11 @@ const MichiPanel = ({project, settings, onChange, onDone, onOpenSettings}) => {
     ];
 
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages",{
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({
-          model:"claude-sonnet-4-5-20250929",
-          max_tokens:1000,
-          system: MICHI_SYSTEM + "\n\n" + buildContext() + (systemExtra ? "\n\n" + systemExtra : ""),
-          messages: allMessages
-        })
+      const d = await callMichi({
+        max_tokens:1000,
+        system: MICHI_SYSTEM + "\n\n" + buildContext() + (systemExtra ? "\n\n" + systemExtra : ""),
+        messages: allMessages
       });
-      const d = await res.json();
       const text = d.content?.find(b=>b.type==="text")?.text?.trim()||"";
 
       // Check if response contains a JSON estimate
@@ -2324,8 +2345,31 @@ const NewItemForm = ({settings, onAdd, projectHistory=[]}) => {
     setFileType(isPdf ? "pdf" : "image");
     setFileMime(isPdf ? "application/pdf" : (file.type || "image/jpeg"));
     const reader = new FileReader();
-    reader.onload = ev => { setImgB64(ev.target.result.split(",")[1]); };
+    reader.onload = ev => {
+      const b64 = ev.target.result.split(",")[1];
+      setImgB64(b64);
+      // Suggerimento automatico: Michi legge il file e propone nome/descrizione
+      suggestFromFile(b64, isPdf ? "pdf" : "image", isPdf ? "application/pdf" : (file.type||"image/jpeg"));
+    };
     reader.readAsDataURL(file);
+  };
+
+  const [suggesting, setSuggesting] = useState(false);
+  const suggestFromFile = async (b64, type, mime) => {
+    setSuggesting(true);
+    const ask = "Guarda questo " + (type==="pdf"?"disegno tecnico/documento PDF":"immagine") + " di un arredo su misura. Proponi un nome breve per l'elemento e una descrizione tecnica di 1-2 frasi. Rispondi SOLO con JSON: {\"name\":\"...\",\"description\":\"...\",\"caratteristiche\":\"...\"}";
+    try {
+      const content = type==="pdf"
+        ? [{type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}},{type:"text",text:ask}]
+        : [{type:"image",source:{type:"base64",media_type:mime,data:b64}},{type:"text",text:ask}];
+      const d = await callMichi({max_tokens:600, messages:[{role:"user",content}]});
+      const raw = d.content?.find(b=>b.type==="text")?.text?.trim()||"";
+      const sug = JSON.parse(stripFences(raw));
+      if (sug.name && !name.trim()) setName(sug.name);
+      if (sug.description && !desc.trim()) setDesc(sug.description);
+      if (sug.caratteristiche && !dims.trim()) setDims(sug.caratteristiche);
+    } catch(e) { /* suggerimento non riuscito, l'utente compila a mano */ }
+    finally { setSuggesting(false); }
   };
 
   const buildHistoryContext = () => {
@@ -2374,11 +2418,7 @@ Rispondi SOLO con JSON valido, nessun testo fuori:
       } else {
         messages = [{role:"user",content:prompt}];
       }
-      const res = await fetch("https://api.anthropic.com/v1/messages",{
-        method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({model:"claude-sonnet-4-5-20250929",max_tokens:2500,messages})
-      });
-      const d = await res.json();
+      const d = await callMichi({max_tokens:2500, messages});
       const raw = d.content?.find(b=>b.type==="text")?.text?.trim()||"";
       setPreview(JSON.parse(stripFences(raw)));
     } catch(e) { console.error(e); }
@@ -2618,7 +2658,9 @@ Rispondi SOLO con JSON valido, nessun testo fuori:
         </label>
         {imgFile && (
           <div style={{fontSize:10,color:T.blue2,marginTop:4,fontFamily:"'IBM Plex Mono',monospace"}}>
-            {fileType==="pdf"?"Michi leggerà il disegno tecnico per ricavare misure e materiali":"Michi analizzerà l'immagine per la stima"}
+            {suggesting
+              ? "⟳ Michi sta leggendo il file e compila i campi…"
+              : (fileType==="pdf"?"Michi leggerà il disegno tecnico per ricavare misure e materiali":"Michi analizzerà l'immagine per la stima")}
           </div>
         )}
       </div>
